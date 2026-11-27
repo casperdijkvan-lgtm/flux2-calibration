@@ -4,7 +4,9 @@ A one-page web app that runs a spin-down calibration on a **Tacx Flux 2** smart 
 
 ## Use it
 
-Web Bluetooth only works in **Google Chrome or Microsoft Edge** (not Safari), and only on `https://` or `localhost`.
+**Open https://casperdijkvan-lgtm.github.io/flux2-calibration/ in Google Chrome or Microsoft Edge** (Safari doesn't support Web Bluetooth).
+
+To run it locally instead (Web Bluetooth needs `https://` or `localhost`):
 
 ```bash
 python3 -m http.server 8000
