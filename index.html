@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flux 2 Calibration</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #e8eaf0; --muted: #8a92a6;
+    --accent: #ff6a1a; --ok: #2ecc71; --bad: #ff4d4f; --warn: #f5c542;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 20px 60px; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; margin-bottom: 16px; }
+  .notice { border-color: color-mix(in srgb, var(--warn) 60%, transparent); color: var(--warn); }
+  .speed { text-align: center; font-variant-numeric: tabular-nums; }
+  .speed b { font-size: 88px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+  .speed small { font-size: 18px; color: var(--muted); margin-left: 6px; }
+  .bar { position: relative; height: 14px; background: #0b0d11; border-radius: 999px; margin: 22px 0 8px; overflow: visible; }
+  .fill { height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width .25s ease, background .3s; }
+  .fill.reached { background: var(--ok); }
+  .mark { position: absolute; top: -6px; bottom: -6px; width: 3px; background: var(--text); border-radius: 2px; display: none; }
+  .barlabels { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  .instruction { text-align: center; font-size: 20px; font-weight: 600; margin: 20px 0 0; min-height: 30px; }
+  .instruction.go { color: var(--accent); }
+  .instruction.stop { color: var(--ok); }
+  ol.steps { list-style: none; padding: 0; margin: 0 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  ol.steps li { text-align: center; font-size: 12px; color: var(--muted); padding: 10px 4px; border-radius: 10px; border: 1px solid var(--line); }
+  ol.steps li.active { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  ol.steps li.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  button { font: inherit; font-weight: 600; padding: 12px 18px; border-radius: 12px; border: 1px solid var(--line);
+           background: #232835; color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--muted); margin-left: auto; }
+  .result h2 { margin: 0 0 8px; font-size: 18px; }
+  .result.ok h2 { color: var(--ok); }
+  .result.bad h2 { color: var(--bad); }
+  .result dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 12px 0 0; }
+  .result dt { color: var(--muted); }
+  .result dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .result ul { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  details { color: var(--muted); }
+  summary { cursor: pointer; font-size: 13px; }
+  pre { background: #0b0d11; border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-size: 12px;
+        max-height: 260px; overflow: auto; white-space: pre-wrap; }
+  .tips { color: var(--muted); font-size: 13px; }
+  .tips ul { margin: 6px 0 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Flux 2 <span>Calibration</span></h1>
+    <span id="conn" class="pill">Not connected</span>
+  </header>
+
+  <div id="unsupported" class="card notice" hidden>
+    This browser can't use Bluetooth. Open this page in <b>Google Chrome</b> or <b>Microsoft Edge</b> (Safari doesn't support Web Bluetooth).
+  </div>
+
+  <section class="card">
+    <div class="speed"><b id="speed">--</b><small>km/h</small></div>
+    <div class="bar"><div id="fill" class="fill"></div><div id="mark" class="mark"></div></div>
+    <div class="barlabels"><span>0</span><span id="targetLabel">Target: --</span></div>
+    <p id="instruction" class="instruction">Connect your trainer to begin.</p>
+  </section>
+
+  <ol class="steps" id="steps">
+    <li data-step="connect">1 · Connect</li>
+    <li data-step="speedup">2 · Speed up</li>
+    <li data-step="coast">3 · Stop pedalling</li>
+    <li data-step="done">4 · Done</li>
+  </ol>
+
+  <div class="actions">
+    <button id="connectBtn" class="primary">Connect trainer</button>
+    <button id="calBtn" disabled>Start calibration</button>
+    <button id="demoBtn" class="ghost" title="Simulate a trainer to see how it works">Demo</button>
+  </div>
+
+  <section id="result" class="card result" hidden></section>
+
+  <section class="card tips">
+    <b style="color:var(--text)">Before you start</b>
+    <ul>
+      <li>Close Zwift, the Tacx app and other trainer apps, because the Flux 2 accepts only one Bluetooth connection.</li>
+      <li>Ride a few minutes to warm up the trainer first.</li>
+      <li>When told to stop, stop pedalling completely and keep your feet still until it's done.</li>
+    </ul>
+  </section>
+
+  <details>
+    <summary>Bluetooth log</summary>
+    <pre id="log"></pre>
+  </details>
+</main>
+
+<script>
+// ---- Bluetooth IDs -------------------------------------------------------
+// Tacx "FE-C over BLE": ANT+ FE-C messages wrapped in a UART-style service.
+const FEC_SERVICE = '6e40fec1-b5a3-f393-e0a9-e50e24dcca9e';
+const FEC_RX      = '6e40fec2-b5a3-f393-e0a9-e50e24dcca9e'; // trainer -> app (notify)
+const FEC_TX      = '6e40fec3-b5a3-f393-e0a9-e50e24dcca9e'; // app -> trainer (write)
+// Standard Bluetooth Fitness Machine Service (fallback)
+const FTMS_SERVICE = 0x1826, FTMS_BIKE = 0x2ad2, FTMS_CP = 0x2ad9, FTMS_STATUS = 0x2ada;
+
+const $ = id => document.getElementById(id);
+const S = { device: null, mode: null, tx: null, cp: null, phase: 'idle',
+            target: null, targetLow: null, speed: 0, maxSpeed: 0, timers: [], demo: null };
+
+// ---- UI helpers ----------------------------------------------------------
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  const el = $('log'); el.textContent += `[${t}] ${msg}\n`; el.scrollTop = el.scrollHeight;
+}
+const hex = arr => Array.from(arr, b => b.toString(16).padStart(2, '0')).join(' ');
+
+function setConn(text, on) { $('conn').textContent = text; $('conn').classList.toggle('on', !!on); }
+
+function setInstruction(text, cls = '') {
+  const el = $('instruction'); el.textContent = text; el.className = 'instruction ' + cls;
+}
+
+function setPhase(phase) {
+  S.phase = phase;
+  const order = ['connect', 'speedup', 'coast', 'done'];
+  const cur = { idle: 'connect', connected: 'speedup', starting: 'speedup', speedup: 'speedup',
+                coast: 'coast', done: 'done', failed: 'done' }[phase];
+  const curIdx = order.indexOf(cur);
+  document.querySelectorAll('#steps li').forEach((li, i) => {
+    li.classList.toggle('active', i === curIdx && phase !== 'done' && phase !== 'failed' && phase !== 'idle');
+    li.classList.toggle('done', i < curIdx || phase === 'done');
+  });
+  if (phase === 'connected') document.querySelector('#steps li').classList.add('done');
+  const busy = ['starting', 'speedup', 'coast'].includes(phase);
+  $('calBtn').disabled = !S.mode || busy;
+  $('calBtn').textContent = busy ? 'Calibrating…' : (phase === 'done' || phase === 'failed') ? 'Calibrate again' : 'Start calibration';
+}
+
+function scaleMax() { return Math.max(50, (S.target || 40) * 1.25, S.maxSpeed * 1.05); }
+
+function setTarget(kmh, lowKmh) {
+  S.target = kmh; S.targetLow = lowKmh ?? null;
+  const max = scaleMax();
+  if (kmh) {
+    $('mark').style.display = 'block';
+    $('mark').style.left = `${Math.min(100, kmh / max * 100)}%`;
+    $('targetLabel').textContent = `Target: ${kmh.toFixed(1)} km/h`;
+  } else {
+    $('mark').style.display = 'none';
+    $('targetLabel').textContent = 'Target: --';
+  }
+}
+
+function setSpeed(kmh) {
+  S.speed = kmh;
+  S.maxSpeed = Math.max(S.maxSpeed, kmh);
+  $('speed').textContent = kmh.toFixed(1);
+  $('fill').style.width = `${Math.min(100, kmh / scaleMax() * 100)}%`;
+  $('fill').classList.toggle('reached', !!S.target && kmh >= S.target);
+  if (S.target) setTarget(S.target, S.targetLow); // keep marker aligned if scale changed
+  // Our own guidance in case the trainer doesn't send a "speed OK" flag
+  if (S.phase === 'speedup' && S.target && kmh >= S.target) goCoast();
+  if (S.phase === 'speedup' && S.target && kmh < S.target)
+    setInstruction(`Pedal up to ${S.target.toFixed(0)} km/h`, 'go');
+  if (S.phase === 'coast' && kmh < 1) setInstruction('Waiting for the trainer…', 'stop');
+}
+
+function goCoast() {
+  if (S.phase !== 'speedup') return;
+  setPhase('coast');
+  setInstruction('STOP pedalling now', 'stop');
+  log('Target speed reached; coasting down.');
+}
+
+function showResult(ok, details, tips) {
+  clearTimers();
+  setPhase(ok ? 'done' : 'failed');
+  const r = $('result');
+  r.hidden = false;
+  r.className = 'card result ' + (ok ? 'ok' : 'bad');
+  r.innerHTML = `<h2>${ok ? '✓ Calibration successful' : '✕ Calibration failed'}</h2>` +
+    (details && details.length ? '<dl>' + details.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('') + '</dl>' : '') +
+    (tips && tips.length ? '<ul>' + tips.map(t => `<li>${t}</li>`).join('') + '</ul>' : '');
+  setInstruction(ok ? 'All done. Your trainer is calibrated.' : 'Something went wrong. See the tips below.', ok ? 'stop' : '');
+}
+
+function clearTimers() { S.timers.forEach(clearTimeout); S.timers = []; }
+
+const FAIL_TIPS = [
+  'Pedal past the target speed, then stop pedalling completely.',
+  'Keep your feet off the pedals while the flywheel slows down.',
+  'Close other apps that may be connected to the trainer, then try again.',
+];
+
+// ---- FE-C (Tacx) ---------------------------------------------------------
+function antMessage(payload8) {
+  // Sync, length, "acknowledged data", channel, 8 data bytes, XOR checksum
+  const m = [0xA4, 0x09, 0x4F, 0x05, ...payload8];
+  m.push(m.reduce((c, b) => c ^ b, 0));
+  return new Uint8Array(m);
+}
+
+async function writeTx(char, bytes) {
+  log('→ ' + hex(bytes));
+  if (char.properties.write && char.writeValueWithResponse) return char.writeValueWithResponse(bytes);
+  if (char.writeValueWithoutResponse) return char.writeValueWithoutResponse(bytes);
+  return char.writeValue(bytes);
+}
+
+function onFecData(ev) {
+  const d = new Uint8Array(ev.target.value.buffer);
+  if (d.length >= 12 && d[0] === 0xA4 && (d[2] === 0x4E || d[2] === 0x4F)) handleFecPage(d.slice(4, 12));
+  else log('← (unknown) ' + hex(d));
+}
+
+const tempC = raw => raw === 0xFF ? null : raw * 0.5 - 25;
+
+function handleFecPage(p) {
+  const page = p[0];
+  if (page === 0x10) {                     // General FE data: speed in 0.001 m/s
+    setSpeed(((p[4] | p[5] << 8) * 0.001) * 3.6);
+    return;
+  }
+  log('← page 0x' + page.toString(16).padStart(2, '0') + ': ' + hex(p));
+  if (page === 0x02) {                     // Calibration in progress
+    const cond = p[2];
+    const speedCond = (cond >> 6) & 3;     // 1 = too slow, 2 = OK
+    const tgtRaw = p[4] | p[5] << 8;
+    if (tgtRaw !== 0xFFFF && tgtRaw > 0) setTarget(tgtRaw * 0.001 * 3.6);
+    if (S.phase === 'starting') { setPhase('speedup'); setInstruction(S.target ? `Pedal up to ${S.target.toFixed(0)} km/h` : 'Start pedalling', 'go'); }
+    if (speedCond === 2) goCoast();
+    else if (speedCond === 1 && S.phase === 'speedup') setInstruction(`Pedal faster${S.target ? ` (to ${S.target.toFixed(0)} km/h)` : ''}`, 'go');
+  } else if (page === 0x01) {              // Calibration response
+    if (!['starting', 'speedup', 'coast'].includes(S.phase)) return;
+    const ok = !!(p[1] & 0x80);
+    const t = tempC(p[2]);
+    const spin = p[5] | p[6] << 8;
+    const details = [];
+    if (spin && spin !== 0xFFFF) details.push(['Spin-down time', `${spin} ms`]);
+    if (t !== null) details.push(['Temperature', `${t.toFixed(1)} °C`]);
+    if (S.maxSpeed) details.push(['Top speed', `${S.maxSpeed.toFixed(1)} km/h`]);
+    showResult(ok, details, ok ? [] : FAIL_TIPS);
+  }
+}
+
+async function connectFec(server) {
+  const svc = await server.getPrimaryService(FEC_SERVICE);
+  const rx = await svc.getCharacteristic(FEC_RX);
+  S.tx = await svc.getCharacteristic(FEC_TX);
+  rx.addEventListener('characteristicvaluechanged', onFecData);
+  await rx.startNotifications();
+  S.mode = 'fec';
+  log('Connected using Tacx FE-C over Bluetooth.');
+}
+
+async function startFecCalibration() {
+  // Page 0x01, byte 1 bit 7 = spin-down calibration request
+  await writeTx(S.tx, antMessage([0x01, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+}
+
+// ---- FTMS (standard) -----------------------------------------------------
+function onFtmsBike(ev) {
+  const v = ev.target.value;
+  const flags = v.getUint16(0, true);
+  if (!(flags & 0x01) && v.byteLength >= 4) setSpeed(v.getUint16(2, true) / 100);
+}
+
+function onFtmsCp(ev) {
+  const d = new Uint8Array(ev.target.value.buffer);
+  log('← CP ' + hex(d));
+  if (d[0] !== 0x80) return;
+  const [, op, res] = d;
+  if (op === 0x13) {
+    if (res !== 0x01) return showResult(false, [], ['The trainer refused the spin-down request (code ' + res + ').', ...FAIL_TIPS]);
+    const v = ev.target.value;
+    if (v.byteLength >= 7) setTarget(v.getUint16(5, true) / 100, v.getUint16(3, true) / 100);
+    setPhase('speedup');
+    setInstruction(S.target ? `Pedal up to ${S.target.toFixed(0)} km/h` : 'Start pedalling', 'go');
+  } else if (op === 0x00 && res !== 0x01) {
+    log('Trainer did not grant control (code ' + res + ').');
+  }
+}
+
+function onFtmsStatus(ev) {
+  const d = new Uint8Array(ev.target.value.buffer);
+  log('← status ' + hex(d));
+  if (d[0] !== 0x14) return;            // Spin-down status
+  const s = d[1];
+  if (s === 0x04) goCoast();            // "stop pedalling"
+  else if (s === 0x02) showResult(true, S.maxSpeed ? [['Top speed', `${S.maxSpeed.toFixed(1)} km/h`]] : []);
+  else if (s === 0x03) showResult(false, [], FAIL_TIPS);
+}
+
+async function connectFtms(server) {
+  const svc = await server.getPrimaryService(FTMS_SERVICE);
+  S.cp = await svc.getCharacteristic(FTMS_CP);
+  S.cp.addEventListener('characteristicvaluechanged', onFtmsCp);
+  await S.cp.startNotifications();
+  try {
+    const st = await svc.getCharacteristic(FTMS_STATUS);
+    st.addEventListener('characteristicvaluechanged', onFtmsStatus);
+    await st.startNotifications();
+  } catch (e) { log('No FTMS status characteristic.'); }
+  try {
+    const bike = await svc.getCharacteristic(FTMS_BIKE);
+    bike.addEventListener('characteristicvaluechanged', onFtmsBike);
+    await bike.startNotifications();
+  } catch (e) { log('No indoor bike data characteristic.'); }
+  S.mode = 'ftms';
+  log('Connected using FTMS.');
+  await writeTx(S.cp, new Uint8Array([0x00])); // request control
+}
+
+async function startFtmsCalibration() {
+  await writeTx(S.cp, new Uint8Array([0x13, 0x01])); // spin down: start
+}
+
+// ---- Connect / calibrate -------------------------------------------------
+async function connect() {
+  if (S.demo) stopDemo();
+  try {
+    setConn('Searching…');
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [FEC_SERVICE] }, { services: [FTMS_SERVICE] }, { namePrefix: 'Tacx' }],
+      optionalServices: [FEC_SERVICE, FTMS_SERVICE],
+    });
+    S.device = device;
+    device.addEventListener('gattserverdisconnected', onDisconnect);
+    setConn('Connecting…');
+    log(`Selected "${device.name || 'unnamed device'}".`);
+    const server = await device.gatt.connect();
+    try { await connectFec(server); }
+    catch (e) { log('FE-C not available (' + e.message + '); trying FTMS…'); await connectFtms(server); }
+    setConn(device.name || 'Connected', true);
+    $('connectBtn').textContent = 'Disconnect';
+    setPhase('connected');
+    setInstruction('Ready. Press “Start calibration”.');
+  } catch (e) {
+    log('Connect failed: ' + e.message);
+    setConn('Not connected');
+    if (e.name !== 'NotFoundError') setInstruction('Could not connect: ' + e.message);
+  }
+}
+
+function onDisconnect() {
+  log('Trainer disconnected.');
+  clearTimers();
+  Object.assign(S, { device: null, mode: null, tx: null, cp: null });
+  setConn('Not connected');
+  $('connectBtn').textContent = 'Connect trainer';
+  if (['starting', 'speedup', 'coast'].includes(S.phase)) showResult(false, [], ['The trainer disconnected during calibration.']);
+  else { setPhase('idle'); setInstruction('Connect your trainer to begin.'); }
+}
+
+async function calibrate() {
+  $('result').hidden = true;
+  S.maxSpeed = 0; setTarget(null);
+  setPhase('starting');
+  setInstruction('Asking the trainer to start…');
+  try {
+    if (S.mode === 'fec') await startFecCalibration();
+    else if (S.mode === 'ftms') await startFtmsCalibration();
+    else if (S.mode === 'demo') S.demo.start();
+  } catch (e) {
+    log('Write failed: ' + e.message);
+    return showResult(false, [], ['Could not send the command: ' + e.message]);
+  }
+  // If the trainer doesn't announce a target, still guide the rider.
+  S.timers.push(setTimeout(() => {
+    if (S.phase === 'starting') {
+      log('No "calibration in progress" message yet; guiding anyway.');
+      setPhase('speedup');
+      setInstruction('Pedal up to about 40 km/h, then stop', 'go');
+    }
+  }, 4000));
+  S.timers.push(setTimeout(() => {
+    if (['starting', 'speedup', 'coast'].includes(S.phase))
+      showResult(false, [], ['No result from the trainer within 2 minutes.', ...FAIL_TIPS]);
+  }, 120000));
+}
+
+// ---- Demo (simulated trainer, feeds fake FE-C pages) ----------------------
+function page10(kmh) { const v = Math.round(kmh / 3.6 * 1000); return [0x10, 0x19, 0, 0, v & 0xFF, v >> 8, 0xFF, 0x30]; }
+function startDemoTrainer() {
+  let speed = 0, t = 0, phase = 'idle', iv;
+  const target = 36, tgtRaw = Math.round(target / 3.6 * 1000), temp = Math.round((24 + 25) / 0.5);
+  const tick = () => {
+    t += 0.25;
+    if (phase === 'up') { speed = Math.min(target + 3, speed + 2.2); if (speed >= target + 3) phase = 'coast'; }
+    else if (phase === 'coast') { speed = Math.max(0, speed - 1.4); if (speed === 0) { phase = 'idle';
+      handleFecPage([0x01, 0x80, temp, 0xFF, 0xFF, 0x54, 0x0D, 0xFF]); } }
+    handleFecPage(page10(speed));
+    if (phase === 'up' || phase === 'coast') {
+      const cond = (2 << 4) | ((speed >= target ? 2 : 1) << 6);
+      if (Math.round(t * 4) % 4 === 0) handleFecPage([0x02, 0x80, cond, temp, tgtRaw & 0xFF, tgtRaw >> 8, 0xFF, 0xFF]);
+    }
+  };
+  iv = setInterval(tick, 250);
+  return { start() { phase = 'up'; speed = 0; }, stop() { clearInterval(iv); } };
+}
+function startDemo() {
+  if (S.device) return;
+  S.demo = startDemoTrainer(); S.mode = 'demo';
+  setConn('Demo trainer', true);
+  $('demoBtn').textContent = 'Stop demo';
+  log('Demo mode: simulated trainer.');
+  setPhase('connected'); setInstruction('Ready. Press “Start calibration”.');
+}
+function stopDemo() {
+  S.demo.stop(); S.demo = null; S.mode = null; clearTimers();
+  $('demoBtn').textContent = 'Demo'; setConn('Not connected');
+  setTarget(null); setSpeed(0); $('speed').textContent = '--'; $('result').hidden = true;
+  setPhase('idle'); setInstruction('Connect your trainer to begin.');
+}
+
+// ---- Wire up -------------------------------------------------------------
+$('connectBtn').onclick = () => S.device ? S.device.gatt.disconnect() : connect();
+$('calBtn').onclick = calibrate;
+$('demoBtn').onclick = () => S.demo ? stopDemo() : startDemo();
+if (!navigator.bluetooth) { $('unsupported').hidden = false; $('connectBtn').disabled = true; }
+setPhase('idle');
+</script>
+</body>
+</html>
